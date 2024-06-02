@@ -3,6 +3,8 @@ __pycache__
 *.pyc
 *.jpg
 market1501
-文档
+文档/*.jpg
+文档/*.png
+文档/*.svg
 experiments\trinet_embed_experiments\trinet-market1501.npz
 resnet_v1_50_2016_08_28\resnet_v1_50.ckpt
