@@ -1,0 +1,4 @@
+文档/*.png
+.vscode
+__pycache__
+my_work/data/*
