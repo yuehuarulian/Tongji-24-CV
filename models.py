@@ -36,9 +36,15 @@ def convLayer(x, kHeight, kWidth, strideX, strideY, featureNum, name, padding = 
 
 
 def vgg_like(x_inputs, keepPro, classNum):
-    x_inputs_shape = tf.shape(x_inputs).numpy()
+    # x_inputs_shape = tf.shape(x_inputs).numpy()
+    x_inputs_shape = tf.shape(x_inputs)
+
+    # x_inputs = tf.Print(x_inputs, ['x_inputs: ',tf.shape(x_inputs)])
+    # x_inputs = tf.Print(x_inputs, [tf.reduce_mean(x_inputs), tf.math.reduce_std(x_inputs)], message="x_inputs: ")
 
     conv1_1 = convLayer(x_inputs, 3, 3, 1, 1, 64, "conv1_1" )
+    # conv1_1 = tf.Print(conv1_1, [tf.reduce_mean(conv1_1), tf.math.reduce_std(conv1_1)], message="conv1_1: ")
+
     conv1_2 = convLayer(conv1_1, 3, 3, 1, 1, 64, "conv1_2")
     conv1_3 = convLayer(conv1_2, 3, 3, 1, 1, 128, "conv1_3")
     pool1 = maxPoolLayer(conv1_3, 2, 2, 2, 2, "pool1")
@@ -58,13 +64,13 @@ def vgg_like(x_inputs, keepPro, classNum):
     conv3_3 = convLayer(conv3_2, 3, 3, 1, 1, 512, "conv3_3")
     pool3 = maxPoolLayer(conv3_3, 2, 2, 2, 2, "pool3")
     
-    #conv4_1 = convLayer(pool3, 3, 3, 1, 1, 512, "conv4_1")
-    #conv4_2 = convLayer(conv4_1, 3, 3, 1, 1, 512, "conv4_2")
-    #conv4_3 = convLayer(conv4_2, 3, 3, 1, 1, 512, "conv4_3")
+    # conv4_1 = convLayer(pool3, 3, 3, 1, 1, 512, "conv4_1")
+    # conv4_2 = convLayer(conv4_1, 3, 3, 1, 1, 512, "conv4_2")
+    # conv4_3 = convLayer(conv4_2, 3, 3, 1, 1, 512, "conv4_3")
 
-    #pool3 = tf.Print(pool3, ['POOL3: ',tf.shape(pool3)])
+    # pool3 = tf.Print(pool3, [tf.reduce_mean(pool3), tf.math.reduce_std(pool3)], message="pool3: ")
 
-    fcIn = tf.reshape(pool3, [-1, (x_inputs_shape[0]/8)*(x_inputs_shape[1]/8)*512])
+    fcIn = tf.reshape(pool3, [-1,  (x_inputs_shape[2]/8)*(x_inputs_shape[1]/8)*512])
     fc6 = fcLayer(fcIn, 8*8*512, 512, True, "fc6")
     drop1 = tf.nn.dropout(fc6, keepPro)
 
@@ -79,7 +85,7 @@ def vgg_like(x_inputs, keepPro, classNum):
 
 
 def resnet_like(x_inputs, keepPro, classNum):
-    x_inputs_shape = tf.shape(x_inputs).numpy()
+    x_inputs_shape = tf.shape(x_inputs)
     conv1_1 = convLayer(x_inputs, 7, 7, 2, 2, 64, "conv1_1")
     pool1 = maxPoolLayer(conv1_1, 2, 2, 2, 2, "pool1")
 
@@ -152,8 +158,8 @@ def resnet_like(x_inputs, keepPro, classNum):
 
     pool5 = avgPoolLayer(conc_15, 2, 2, 2, 2, "pool5")
 
-    fcIn = tf.reshape(pool5, [-1, (x_inputs_shape[0]/64) * (x_inputs_shape[1]/64) * 512])
-    fc6 = fcLayer(fcIn, (x_inputs_shape[0]/64) * (x_inputs_shape[1]/64) * 512, 512, True, "fc6")
+    fcIn = tf.reshape(pool5, [-1, (x_inputs_shape[1]/64) * (x_inputs_shape[1]/64) * 512])
+    fc6 = fcLayer(fcIn, (x_inputs_shape[1]/64) * (x_inputs_shape[1]/64) * 512, 512, True, "fc6")
     drop1 = tf.nn.dropout(fc6, keepPro)
 
     fc8 = fcLayer(drop1, 256, classNum, False, "fc8")

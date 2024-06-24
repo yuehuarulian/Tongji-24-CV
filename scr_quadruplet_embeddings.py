@@ -27,7 +27,7 @@ ap.add_argument('-i', '--input_folder', required=True, help='Data input folder')
 ap.add_argument('-o', '--output_folder', required=True, help='Results/debug output folder')
 ap.add_argument('-b', '--batch_size', type=int, default=100, help='Learning batch size')
 ap.add_argument('-l', '--learning_rate', type=float, default=1e-3, help='Learning rate')
-ap.add_argument('-e', '--epochs', type=int, default=10, help='Tot. epochs')
+ap.add_argument('-e', '--epochs', type=int, default=50, help='Tot. epochs')
 ap.add_argument('-p', '--patience', type=int, default=0, help='Tot. epochs without improvement to stop')
 ap.add_argument('-s', '--image_size', type=int, default=64, help='Image size')
 ap.add_argument('-m', '--manifold_dimension', type=int, default=128, help='Manifold output dimension')
@@ -71,6 +71,8 @@ with open(args['dataset']) as f:
     csv_file = csv.reader(f, delimiter=',')
     for row in csv_file:
         row_aux = [row[i] for i in [0] + FEATURES]
+        name = row_aux[0]
+        row_aux[0] = os.path.join(name.rsplit('_',1)[0],name)
         if int(row[-1]) == 0:
             learning_samples.append(row_aux)
         else:
@@ -135,7 +137,8 @@ def read_batch(l_s, rand_idx, imd, manifold_columns):
     imgs = np.zeros((len(rand_idx), HEIGHT_IMGS, WIDTH_IMGS, DEPTH_IMGS), dtype=np.float32)
 
     for i, idx in enumerate(rand_idx):
-        imgs[i, :, :, :] = cv2.resize(cv2.imread(l_s[idx][0], cv2.IMREAD_COLOR), (HEIGHT_IMGS, WIDTH_IMGS))
+        img = cv2.resize(cv2.imread(l_s[idx][0], cv2.IMREAD_COLOR), (HEIGHT_IMGS, WIDTH_IMGS))
+        imgs[i, :, :, :] = img / 255.0  # 归一化到 [0, 1]
         for j in range(tot_columns):
             cls[i, j] = l_s[idx][j + 1]
 
@@ -152,8 +155,8 @@ def read_batch(l_s, rand_idx, imd, manifold_columns):
     alphas[alphas > 1] = 1
     alphas = np.reshape(alphas, [-1, 1])
 
-    for i, _ in enumerate(rand_idx):
-        imgs[i, :, :, :] = np.divide(imgs[i, :, :, :], imd)
+    # for i, _ in enumerate(rand_idx):
+    #     imgs[i, :, :, :] = np.divide(imgs[i, :, :, :], imd)
     return imgs, alphas
 
 
@@ -204,8 +207,8 @@ def pairwise_sum_elements_array(a):
 def loss_quadruplet(logits, difs_al):
     difs_al = tf.reshape(difs_al, [-1])
 
-    # difs_al = tf.Print(difs_al, ["DIFS_AL ", tf.shape(difs_al), "=", difs_al], summarize=50)
-    # logits = tf.Print(logits, ["LOGITS ", tf.shape(logits), "=", logits], summarize=50)
+    # difs_al = tf.Print(difs_al, [tf.reduce_mean(difs_al), tf.math.reduce_std(difs_al)], message="DIFS_AL: ")
+    # logits = tf.Print(logits, [tf.reduce_mean(logits), tf.math.reduce_std(logits)], message="logits: ")
 
     dists = tf.reshape(distance_rows_matrix(logits), [-1])
 
@@ -214,22 +217,27 @@ def loss_quadruplet(logits, difs_al):
     dists_2 = pairwise_difference_elements_array(dists)
     difs_al_2 = pairwise_difference_elements_array(difs_al)
 
-    # dists_2 = tf.Print(dists_2, ["DISTS_2 ", dists_2], summarize=100)
-    # difs_al_2 = tf.Print(difs_al_2, ["DIFS_AL_2 ", difs_al_2], summarize=100)
+    # dists_2 = tf.Print(dists_2, [tf.reduce_mean(dists_2), tf.math.reduce_std(dists_2)], message="dists_2: ")
+    # difs_al_2 = tf.Print(difs_al_2, [tf.reduce_mean(difs_al_2), tf.math.reduce_std(difs_al_2)], message="difs_al_2: ")
+
 
     difs_al_21 = tf.sign(difs_al_2)
 
     lo = tf.multiply(-tf.sign(difs_al_21), dists_2 - difs_al_21 * tf.constant(args['alpha']))
 
-    # lo = tf.Print(lo, ["LO ", lo], summarize=100)
+    # lo = tf.Print(lo, [tf.reduce_mean(lo), tf.math.reduce_std(lo)], message="lo: ")
 
     lo = tf.math.maximum(lo, 0.0)
 
-    # lo = tf.Print(lo, ["MAX(LO, 0) ", lo], summarize=100)
+    # lo = tf.Print(lo, [tf.reduce_mean(lo), tf.math.reduce_std(lo)], message="MAX(LO, 0): ")
 
     lo = tf.reduce_sum(lo)
 
-    # lo = tf.Print(lo, ["OUT LOSS ", lo])
+    # 计算样本对的数量
+    num_samples = tf.size(difs_al_2)
+    # lo = lo / tf.cast(num_samples, tf.float32)
+    lo = lo / args['batch_size']
+    # lo = tf.Print(lo, ["FINAL LOSS ", lo])
 
     return lo
 
@@ -245,7 +253,7 @@ with tf.variable_scope('model_definition') as scope:
 loss = loss_quadruplet(model_outputs, alphas)
 
 model_learning_rate = tf.train.exponential_decay(args['learning_rate'], generation_num, decay_epochs, lr_decay, staircase = True)
-my_optimizer = tf.train.GradientDescentOptimizer(model_learning_rate)
+my_optimizer = tf.train.AdamOptimizer(model_learning_rate)
 gradients = my_optimizer.compute_gradients(loss)
 train_op = my_optimizer.apply_gradients(gradients)
 
@@ -273,38 +281,28 @@ train_loss = []
 
 for e in range(args['epochs']):
     i = 0
-sess.run(generation_num.assign(e))
-epoch_loss = 0
 
-while i < len(learning_samples):
-    rand_idx = np.random.choice(range(len(learning_samples)), size=args['batch_size'], replace=True)
-    # rand_idx = np.asarray(range(i, np.min([i + args['batch_size'], len(learning_samples)])))
-
-    rand_imgs, rand_alphas = read_batch(learning_samples, rand_idx, imdb, FEATURES_MANIFOLD)
-
-    sess.run(train_op, feed_dict={x_inputs: rand_imgs, alphas: rand_alphas})
-
-    t_loss = sess.run(loss, feed_dict={x_inputs: rand_imgs, alphas: rand_alphas})
-
-    print('Learning\tEpoch\t{}/{}\tBatch {}/{}\tLoss={:.5f}'.format(e + 1, args['epochs'],
-                                                                    (i + 1) // args['batch_size'] + 1, math.ceil(
-            len(learning_samples) / args['batch_size']), t_loss))
-    i += args['batch_size']
-    epoch_loss += t_loss * len(rand_idx)
-
+    sess.run(generation_num.assign(e))
+    epoch_loss = 0
+    
+    while i < len(learning_samples):
+        rand_idx = np.random.choice(range(len(learning_samples)), size=args['batch_size'], replace=True)
+        # rand_idx = np.asarray(range(i, np.min([i + args['batch_size'], len(learning_samples)])))
+    
+        rand_imgs, rand_alphas = read_batch(learning_samples, rand_idx, imdb, FEATURES_MANIFOLD)
+    
+        sess.run(train_op, feed_dict={x_inputs: rand_imgs, alphas: rand_alphas})
+    
+        t_loss = sess.run(loss, feed_dict={x_inputs: rand_imgs, alphas: rand_alphas})
+    
+        print('Learning\tEpoch\t{}/{}\tBatch {}/{}\tLoss={:.5f}'.format(e + 1, args['epochs'],
+                                                                        (i + 1) // args['batch_size'] + 1, math.ceil(
+                len(learning_samples) / args['batch_size']), t_loss))
+        i += args['batch_size']
+        epoch_loss += t_loss
+    
     epoch_loss /= len(learning_samples)
     train_loss.append(epoch_loss)
-
-    eval_indices = range(1, e + 2)
-    fig_1 = plt.figure(1)
-    plt.clf()
-    plt.semilogy(eval_indices, train_loss, 'g-o', label='Training')
-    plt.xlabel('Generation')
-    plt.ylabel('Loss')
-    plt.grid(which='major', axis='both')
-
-    fig_1.show()
-    plt.pause(0.01)
 
     ################################################################################################
 
@@ -313,6 +311,17 @@ while i < len(learning_samples):
         if len(last_difs) >= args['patience']:
             if (last_difs[-args['patience']:] > 0).all():
                 break
+
+eval_indices = range(1, args['epochs'] + 1)
+fig_1 = plt.figure(1)
+plt.clf()
+plt.semilogy(eval_indices, train_loss, 'g-o', label='Training')
+plt.xlabel('Generation')
+plt.ylabel('Loss')
+plt.grid(which='major', axis='both')
+
+fig_1.show()
+plt.pause(0.01)
 
 plt.savefig(os.path.join(date_time_folder, 'Learning.png'))
 
